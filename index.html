@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rhythm Rx — Music Tempo Finder</title>
+<style>
+  /* ── Reset & base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f7; color: #2c3e50; min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── Loading overlay ── */
+  #load-overlay {
+    position: fixed; inset: 0; background: rgba(27,107,123,0.96);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+    transition: opacity 0.5s;
+  }
+  #load-overlay.hidden { opacity: 0; pointer-events: none; }
+  .load-box { text-align: center; color: #fff; }
+  .spinner {
+    width: 56px; height: 56px; border: 5px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.9s linear infinite; margin: 0 auto 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .load-box h2 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .load-box p  { font-size: 1rem; opacity: 0.85; margin-bottom: 14px; }
+  .load-status { font-size: 0.88rem; opacity: 0.7; font-style: italic; }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(135deg, #1b6b7b 0%, #0f4a57 100%);
+    color: #fff; padding: 28px 32px 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+  header h1 { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+  header h1 span { color: #7ee8f8; }
+  header p  { font-size: 0.96rem; line-height: 1.6; opacity: 0.92; max-width: 760px; margin-bottom: 6px; }
+  .csv-note { display: inline-block; margin-top: 10px; font-size: 0.8rem; opacity: 0.72; font-style: italic; }
+
+  /* ── Main layout ── */
+  main { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 24px 20px; }
+
+  /* ── Search panel ── */
+  .search-panel {
+    background: #fff; border-radius: 12px; padding: 22px 24px 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.09); margin-bottom: 22px;
+  }
+  .search-panel h2 { font-size: 1rem; font-weight: 700; color: #1b6b7b; letter-spacing: 0.04em; margin-bottom: 14px; }
+  .search-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr auto;
+    gap: 12px; align-items: end;
+  }
+  .search-grid label { display: block; font-size: 0.75rem; font-weight: 600; color: #5a7a88; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; }
+  .search-grid input,
+  .search-grid select {
+    width: 100%; padding: 9px 12px; border: 1.5px solid #c8d8dc; border-radius: 7px;
+    font-size: 0.95rem; color: #2c3e50; background: #f8fbfc;
+    transition: border-color 0.2s, box-shadow 0.2s; outline: none;
+  }
+  .search-grid input:focus,
+  .search-grid select:focus { border-color: #1b6b7b; box-shadow: 0 0 0 3px rgba(27,107,123,0.12); background: #fff; }
+  .btn-clear {
+    padding: 9px 18px; background: #e8f0f2; border: 1.5px solid #c8d8dc;
+    border-radius: 7px; color: #5a7a88; font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: background 0.2s, color 0.2s; white-space: nowrap;
+  }
+  .btn-clear:hover { background: #f8d7da; color: #c0392b; border-color: #f0a0a8; }
+
+  /* ── File loader ── */
+  .file-row { margin-top: 14px; display: flex; align-items: center; gap: 12px; }
+  .btn-file {
+    padding: 7px 14px; background: #fff; border: 1.5px solid #c8d8dc;
+    border-radius: 6px; color: #1b6b7b; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .btn-file:hover { background: #e8f4f7; }
+  #file-input { display: none; }
+
+  /* ── Results panel ── */
+  .results-panel {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.09);
+  }
+  .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .results-header h2 { font-size: 1rem; font-weight: 700; color: #1b6b7b; letter-spacing: 0.04em; }
+  #result-count { font-size: 0.82rem; color: #7a96a4; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th {
+    background: #1b6b7b; color: #fff; padding: 10px 12px;
+    text-align: left; font-weight: 600; font-size: 0.8rem;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th:hover { background: #15535f; }
+  .sort-icon { margin-left: 4px; opacity: 0.7; }
+  tr:nth-child(even) td { background: #f6f9fa; }
+  tr:hover td { background: #eaf4f7; }
+  td { padding: 9px 12px; border-bottom: 1px solid #e8eef0; color: #2c3e50; }
+
+  /* ── Tempo chips (in results) ── */
+  .tempo-chip {
+    display: inline-block; padding: 2px 9px; border-radius: 20px;
+    font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+  }
+  .tempo-Largo      { background: #ede8ff; color: #4a1f9a; }
+  .tempo-Adagio     { background: #e4eeff; color: #1a3496; }
+  .tempo-Andante    { background: #e0f4ff; color: #0a5a82; }
+  .tempo-Moderato   { background: #e4f7e8; color: #145c28; }
+  .tempo-Allegretto { background: #fdf7dc; color: #7a5600; }
+  .tempo-Allegro    { background: #ffeedd; color: #8a3800; }
+  .tempo-Presto     { background: #ffe8e8; color: #8c1010; }
+
+  .td-bpm {
+    font-weight: 700;
+    color: #1b6b7b;
+    font-size: 0.95rem;
+  }
+
+  /* ── Empty / prompt states ── */
+  .state-box {
+    text-align: center; padding: 52px 20px; color: #9ab0ba;
+  }
+  .state-box .icon { font-size: 2.8rem; margin-bottom: 14px; }
+  .state-box h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 6px; color: #7a96a4; }
+  .state-box p  { font-size: 0.9rem; }
+
+  /* ── Tempo reference ── */
+  .tempo-ref {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.09); margin-top: 22px;
+  }
+  .tempo-ref h3 { font-size: 1rem; font-weight: 700; color: #1b6b7b; letter-spacing: 0.04em; margin-bottom: 14px; }
+  .tempo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+  }
+  .tempo-item {
+    border-radius: 8px; padding: 11px 13px;
+    border: 2px solid transparent;
+    transition: transform 0.15s;
+  }
+  .tempo-item:hover { transform: translateY(-2px); }
+  .tempo-item-name { font-weight: 700; font-size: 0.9rem; }
+  .tempo-item-bpm  { font-size: 0.8rem; margin-top: 2px; }
+  .tempo-item-note { font-size: 0.72rem; color: #7a96a4; margin-top: 4px; font-style: italic; }
+
+  /* Tempo item rainbow colours */
+  .ti-Largo      { background: #ede8ff; border-color: #7c4dcc; }
+  .ti-Adagio     { background: #e4eeff; border-color: #3d5fc8; }
+  .ti-Andante    { background: #e0f4ff; border-color: #1a8fc0; }
+  .ti-Moderato   { background: #e4f7e8; border-color: #28a048; }
+  .ti-Allegretto { background: #fdf7dc; border-color: #c8a000; }
+  .ti-Allegro    { background: #ffeedd; border-color: #d06000; }
+  .ti-Presto     { background: #ffe8e8; border-color: #c82020; }
+
+  .gap-note {
+    margin-top: 14px; padding: 10px 14px;
+    background: #f0f6f8; border-radius: 7px; border-left: 3px solid #7ab8c8;
+    font-size: 0.82rem; color: #5a7a88; line-height: 1.5;
+  }
+
+  /* ── Footer ── */
+  footer {
+    background: #1b2e35; color: #7a96a4; text-align: center;
+    padding: 14px 20px; font-size: 0.78rem; margin-top: auto;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 700px) {
+    .search-grid { grid-template-columns: 1fr 1fr; }
+    .search-grid .btn-clear { grid-column: span 2; }
+    header h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="load-overlay">
+  <div class="load-box">
+    <div class="spinner"></div>
+    <h2>Rhythm Rx</h2>
+    <p>Loading the music database…</p>
+    <div class="load-status" id="load-status">Connecting to Google Sheets</div>
+  </div>
+</div>
+
+<header>
+  <h1>Rhythm <span>Rx</span></h1>
+  <p>To assist physical therapists and patients in identifying preferred songs that align with the advised tempo for a given intervention, this music finder (RhythmRx) provides users with a simple selection of songs listed by BPM.</p>
+  <p>By inputting a preferred musical artist and intended tempo range (by BPM value/tempo name), Rhythm Rx can search its database to find songs recorded by that preferred artist that are therapeutically effective.</p>
+  <span class="csv-note" id="data-source-note">Loading database…</span>
+</header>
+
+<main>
+
+  <!-- Search panel -->
+  <div class="search-panel">
+    <h2>🔍 SEARCH SONGS</h2>
+    <div class="search-grid">
+      <div>
+        <label for="q-artist">Artist</label>
+        <input id="q-artist" type="text" placeholder="e.g. The Beatles" autocomplete="off">
+      </div>
+      <div>
+        <label for="q-track">Track Title</label>
+        <input id="q-track" type="text" placeholder="e.g. Hey Jude" autocomplete="off">
+      </div>
+      <div>
+        <label for="q-genre">Genre</label>
+        <input id="q-genre" type="text" placeholder="e.g. Rock" list="genre-list" autocomplete="off">
+        <datalist id="genre-list">
+          <option value="Hip Hop">
+          <option value="Pop">
+          <option value="Rock">
+          <option value="Latin">
+          <option value="Country">
+          <option value="R&B">
+          <option value="Indie">
+          <option value="Metal">
+          <option value="Electronic">
+          <option value="Reggae">
+          <option value="Jazz">
+          <option value="Classical">
+          <option value="Blues">
+          <option value="Punk">
+        </datalist>
+      </div>
+      <div>
+        <label for="q-tempo">Tempo Group</label>
+        <select id="q-tempo">
+          <option value="">All Tempo Groups</option>
+          <option value="Largo">Largo — 40–60 BPM</option>
+          <option value="Adagio">Adagio — 60–76 BPM</option>
+          <option value="Andante">Andante — 76–108 BPM</option>
+          <option value="Moderato">Moderato — 108–114 BPM</option>
+          <option value="Allegretto">Allegretto — 115–120 BPM</option>
+          <option value="Allegro">Allegro — 120–156 BPM</option>
+          <option value="Presto">Presto — 168–200 BPM</option>
+        </select>
+      </div>
+      <button class="btn-clear" id="btn-clear">✕ Clear</button>
+    </div>
+    <div class="file-row">
+      <button class="btn-file" onclick="document.getElementById('file-input').click()">📂 Load from CSV file</button>
+      <input type="file" id="file-input" accept=".csv">
+    </div>
+  </div>
+
+  <!-- Results panel -->
+  <div class="results-panel">
+    <div class="results-header">
+      <h2>Results</h2>
+      <span id="result-count"></span>
+    </div>
+    <div class="table-wrap" id="table-wrap">
+      <div class="state-box" id="prompt-state">
+        <div class="icon">🔍</div>
+        <h3>Start searching above</h3>
+        <p>Enter an artist name, track title, or select a tempo group to find songs.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tempo reference -->
+  <div class="tempo-ref">
+    <h3>TEMPO GROUP REFERENCE</h3>
+    <div class="tempo-grid">
+      <div class="tempo-item ti-Largo">
+        <div class="tempo-item-name">Largo</div>
+        <div class="tempo-item-bpm">40 – 60 BPM</div>
+        <div class="tempo-item-note">Very slow, broad</div>
+      </div>
+      <div class="tempo-item ti-Adagio">
+        <div class="tempo-item-name">Adagio</div>
+        <div class="tempo-item-bpm">60 – 76 BPM</div>
+        <div class="tempo-item-note">Slow and stately</div>
+      </div>
+      <div class="tempo-item ti-Andante">
+        <div class="tempo-item-name">Andante</div>
+        <div class="tempo-item-bpm">76 – 108 BPM</div>
+        <div class="tempo-item-note">Walking pace</div>
+      </div>
+      <div class="tempo-item ti-Moderato">
+        <div class="tempo-item-name">Moderato</div>
+        <div class="tempo-item-bpm">108 – 114 BPM</div>
+        <div class="tempo-item-note">Moderate</div>
+      </div>
+      <div class="tempo-item ti-Allegretto">
+        <div class="tempo-item-name">Allegretto</div>
+        <div class="tempo-item-bpm">115 – 120 BPM</div>
+        <div class="tempo-item-note">Moderately fast</div>
+      </div>
+      <div class="tempo-item ti-Allegro">
+        <div class="tempo-item-name">Allegro</div>
+        <div class="tempo-item-bpm">120 – 156 BPM</div>
+        <div class="tempo-item-note">Fast and bright</div>
+      </div>
+      <div class="tempo-item ti-Presto">
+        <div class="tempo-item-name">Presto</div>
+        <div class="tempo-item-bpm">168 – 200 BPM</div>
+        <div class="tempo-item-note">Very fast</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Rhythm Rx — Music Tempo Finder for Physical Therapy &nbsp;|&nbsp; BPMs are based on audio analysis data and rounded to the nearest whole number &nbsp;|&nbsp; Original studio versions unless otherwise noted
+</footer>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// CONFIGURATION — paste your Google Sheets CSV URL here
+// ─────────────────────────────────────────────────────────────
+const SHEETS_CSV_URL = 'YOUR_GOOGLE_SHEETS_CSV_URL_HERE';
+
+// ─────────────────────────────────────────────────────────────
+// Built-in dataset (149 songs, embedded for offline use)
+// ─────────────────────────────────────────────────────────────
+const BUILT_IN_DATA = [{"artist":"Nirvana","track":"Something in the Way","album":"Nevermind","year":"1991","bpm":"51","tempo_group":"Largo","genre":"Alternative"},{"artist":"Jeff Buckley","track":"Hallelujah","album":"Grace","year":"1994","bpm":"53","tempo_group":"Largo","genre":"Alternative"},{"artist":"Nick Cave & the Bad Seeds","track":"The Mercy Seat","album":"Tender Prey","year":"1988","bpm":"55","tempo_group":"Largo","genre":"Alternative"},{"artist":"They Might Be Giants","track":"O Do Not Forsake Me","album":"John Henry","year":"1994","bpm":"55","tempo_group":"Largo","genre":"Indie/Alternative"},{"artist":"Portishead","track":"Glory Box","album":"Dummy","year":"1994","bpm":"56","tempo_group":"Largo","genre":"Trip-Hop"},{"artist":"Johnny Cash","track":"Hurt","album":"American IV: The Man Comes Around","year":"2002","bpm":"56","tempo_group":"Largo","genre":"Country"},{"artist":"They Might Be Giants","track":"The Guitar","album":"Apollo 18","year":"1992","bpm":"57","tempo_group":"Largo","genre":"Indie/Alternative"},{"artist":"Simon & Garfunkel","track":"The Sound of Silence","album":"Wednesday Morning, 3 A.M.","year":"1964","bpm":"58","tempo_group":"Largo","genre":"Folk"},{"artist":"Pink Floyd","track":"Wish You Were Here","album":"Wish You Were Here","year":"1975","bpm":"58","tempo_group":"Largo","genre":"Rock"},{"artist":"They Might Be Giants","track":"Older","album":"Mink Car / Long Tall Weekend","year":"1999","bpm":"60","tempo_group":"Largo","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Climbing The Walls","album":"The Else","year":"2007","bpm":"60","tempo_group":"Largo","genre":"Indie/Alternative"},{"artist":"R.E.M.","track":"Everybody Hurts","album":"Automatic for the People","year":"1992","bpm":"64","tempo_group":"Adagio","genre":"Alternative"},{"artist":"Pearl Jam","track":"Black","album":"Ten","year":"1991","bpm":"66","tempo_group":"Adagio","genre":"Alternative"},{"artist":"They Might Be Giants","track":"If I Wasn't Shy","album":"Apollo 18","year":"1992","bpm":"67","tempo_group":"Adagio","genre":"Indie/Alternative"},{"artist":"Aerosmith","track":"Dream On","album":"Aerosmith","year":"1973","bpm":"68","tempo_group":"Adagio","genre":"Rock"},{"artist":"They Might Be Giants","track":"Turn Around","album":"Apollo 18","year":"1992","bpm":"68","tempo_group":"Adagio","genre":"Indie/Alternative"},{"artist":"Metallica","track":"Nothing Else Matters","album":"Metallica","year":"1991","bpm":"69","tempo_group":"Adagio","genre":"Metal"},{"artist":"They Might Be Giants","track":"Narrow Your Eyes","album":"Apollo 18","year":"1992","bpm":"70","tempo_group":"Adagio","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"The Cap'm","album":"The Else","year":"2007","bpm":"70","tempo_group":"Adagio","genre":"Indie/Alternative"},{"artist":"Pearl Jam","track":"Jeremy","album":"Ten","year":"1991","bpm":"71","tempo_group":"Adagio","genre":"Alternative"},{"artist":"They Might Be Giants","track":"I Palindrome I","album":"Apollo 18","year":"1992","bpm":"71","tempo_group":"Adagio","genre":"Indie/Alternative"},{"artist":"Radiohead","track":"Fake Plastic Trees","album":"The Bends","year":"1995","bpm":"72","tempo_group":"Adagio","genre":"Alternative"},{"artist":"Soundgarden","track":"Black Hole Sun","album":"Superunknown","year":"1994","bpm":"72","tempo_group":"Adagio","genre":"Alternative"},{"artist":"The Beatles","track":"Hey Jude","album":"Hey Jude (single)","year":"1968","bpm":"74","tempo_group":"Adagio","genre":"Rock"},{"artist":"Nirvana","track":"Dumb","album":"In Utero","year":"1993","bpm":"76","tempo_group":"Andante","genre":"Alternative"},{"artist":"Green Day","track":"Good Riddance (Time of Your Life)","album":"Nimrod","year":"1997","bpm":"76","tempo_group":"Andante","genre":"Punk"},{"artist":"Lou Reed","track":"Walk on the Wild Side","album":"Transformer","year":"1972","bpm":"76","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"See The Constellation","album":"Apollo 18","year":"1992","bpm":"78","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Dinner Bell","album":"Apollo 18","year":"1992","bpm":"80","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Upside Down Frown","album":"The Else","year":"2007","bpm":"80","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Queen","track":"We Will Rock You","album":"News of the World","year":"1977","bpm":"81","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"She's Actual Size","album":"Apollo 18","year":"1992","bpm":"81","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"The Beatles","track":"Come Together","album":"Abbey Road","year":"1969","bpm":"82","tempo_group":"Andante","genre":"Rock"},{"artist":"Marvin Gaye","track":"Let's Get It On","album":"Let's Get It On","year":"1973","bpm":"82","tempo_group":"Andante","genre":"R&B/Soul"},{"artist":"R.E.M.","track":"Losing My Religion","album":"Out of Time","year":"1991","bpm":"83","tempo_group":"Andante","genre":"Alternative"},{"artist":"They Might Be Giants","track":"She's An Angel","album":"They Might Be Giants","year":"1986","bpm":"83","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Tom Petty & the Heartbreakers","track":"Free Fallin'","album":"Full Moon Fever","year":"1989","bpm":"84","tempo_group":"Andante","genre":"Rock"},{"artist":"Red Hot Chili Peppers","track":"Under the Bridge","album":"Blood Sugar Sex Magik","year":"1991","bpm":"85","tempo_group":"Andante","genre":"Alternative"},{"artist":"They Might Be Giants","track":"Fingertips","album":"Apollo 18","year":"1992","bpm":"85","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"The Specials","track":"A Message to You Rudy","album":"The Specials","year":"1979","bpm":"88","tempo_group":"Andante","genre":"Ska"},{"artist":"U2","track":"One","album":"Achtung Baby","year":"1991","bpm":"88","tempo_group":"Andante","genre":"Rock"},{"artist":"Led Zeppelin","track":"Whole Lotta Love","album":"Led Zeppelin II","year":"1969","bpm":"89","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"Space Suit","album":"Apollo 18","year":"1992","bpm":"90","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Radiohead","track":"Creep","album":"Pablo Honey","year":"1993","bpm":"92","tempo_group":"Andante","genre":"Alternative"},{"artist":"Led Zeppelin","track":"Black Dog","album":"Led Zeppelin IV","year":"1971","bpm":"92","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"Kiss Me, Son of God","album":"Lincoln","year":"1988","bpm":"93","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Road Movie to Berlin","album":"Flood","year":"1990","bpm":"93","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"AC/DC","track":"Back in Black","album":"Back in Black","year":"1980","bpm":"94","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"Careful What You Pack","album":"The Else","year":"2007","bpm":"95","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Bob Dylan","track":"Like a Rolling Stone","album":"Highway 61 Revisited","year":"1965","bpm":"96","tempo_group":"Andante","genre":"Folk/Rock"},{"artist":"Red Hot Chili Peppers","track":"Californication","album":"Californication","year":"1999","bpm":"96","tempo_group":"Andante","genre":"Alternative"},{"artist":"Nirvana","track":"Heart-Shaped Box","album":"In Utero","year":"1993","bpm":"96","tempo_group":"Andante","genre":"Alternative"},{"artist":"They Might Be Giants","track":"S-E-X-X-Y","album":"Factory Showroom","year":"1996","bpm":"96","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Nirvana","track":"In Bloom","album":"Nevermind","year":"1991","bpm":"97","tempo_group":"Andante","genre":"Alternative"},{"artist":"ABBA","track":"Dancing Queen","album":"Arrival","year":"1976","bpm":"100","tempo_group":"Andante","genre":"Pop"},{"artist":"Stevie Wonder","track":"Superstition","album":"Talking Book","year":"1972","bpm":"100","tempo_group":"Andante","genre":"R&B/Soul"},{"artist":"They Might Be Giants","track":"I'm Impressed","album":"The Else","year":"2007","bpm":"100","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Weezer","track":"Buddy Holly","album":"Weezer (Blue Album)","year":"1994","bpm":"101","tempo_group":"Andante","genre":"Alternative"},{"artist":"They Might Be Giants","track":"Boss of Me","album":"Mink Car","year":"2001","bpm":"101","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"The Doors","track":"Light My Fire","album":"The Doors","year":"1967","bpm":"102","tempo_group":"Andante","genre":"Rock"},{"artist":"They Might Be Giants","track":"Hypnotist of Ladies","album":"Apollo 18","year":"1992","bpm":"102","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Bee Gees","track":"Stayin' Alive","album":"Saturday Night Fever (OST)","year":"1977","bpm":"104","tempo_group":"Andante","genre":"Disco"},{"artist":"Pixies","track":"Where Is My Mind?","album":"Surfer Rosa","year":"1988","bpm":"104","tempo_group":"Andante","genre":"Alternative"},{"artist":"They Might Be Giants","track":"Stuff Is Way","album":"Nanobots","year":"2013","bpm":"104","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Let's Get This Over With","album":"I Like Fun","year":"2018","bpm":"107","tempo_group":"Andante","genre":"Indie/Alternative"},{"artist":"Blondie","track":"Heart of Glass","album":"Parallel Lines","year":"1978","bpm":"109","tempo_group":"Moderato","genre":"New Wave"},{"artist":"My Bloody Valentine","track":"Only Shallow","album":"Loveless","year":"1991","bpm":"110","tempo_group":"Moderato","genre":"Alternative"},{"artist":"Prince","track":"Kiss","album":"Parade","year":"1986","bpm":"111","tempo_group":"Moderato","genre":"Pop/R&B"},{"artist":"Social Distortion","track":"Ball and Chain","album":"Social Distortion","year":"1990","bpm":"112","tempo_group":"Moderato","genre":"Punk"},{"artist":"They Might Be Giants","track":"Spider","album":"Apollo 18","year":"1992","bpm":"112","tempo_group":"Moderato","genre":"Indie/Alternative"},{"artist":"U2","track":"With or Without You","album":"The Joshua Tree","year":"1987","bpm":"113","tempo_group":"Moderato","genre":"Rock"},{"artist":"The Clash","track":"Should I Stay or Should I Go","album":"Combat Rock","year":"1982","bpm":"113","tempo_group":"Moderato","genre":"Punk"},{"artist":"They Might Be Giants","track":"Dead","album":"Flood","year":"1990","bpm":"113","tempo_group":"Moderato","genre":"Indie/Alternative"},{"artist":"Aretha Franklin","track":"Respect","album":"I Never Loved a Man the Way I Love You","year":"1967","bpm":"114","tempo_group":"Moderato","genre":"R&B/Soul"},{"artist":"They Might Be Giants","track":"We Want a Rock","album":"Flood","year":"1990","bpm":"114","tempo_group":"Moderato","genre":"Indie/Alternative"},{"artist":"Nirvana","track":"The Man Who Sold the World","album":"MTV Unplugged in New York","year":"1994","bpm":"115","tempo_group":"Allegretto","genre":"Alternative"},{"artist":"Tears for Fears","track":"Shout","album":"Songs from the Big Chair","year":"1985","bpm":"115","tempo_group":"Allegretto","genre":"New Wave"},{"artist":"They Might Be Giants","track":"Hall of Heads","album":"Apollo 18","year":"1992","bpm":"115","tempo_group":"Allegretto","genre":"Indie/Alternative"},{"artist":"AC/DC","track":"Highway to Hell","album":"Highway to Hell","year":"1979","bpm":"116","tempo_group":"Allegretto","genre":"Rock"},{"artist":"David Bowie","track":"Heroes","album":"Heroes","year":"1977","bpm":"116","tempo_group":"Allegretto","genre":"Rock"},{"artist":"Deep Purple","track":"Smoke on the Water","album":"Machine Head","year":"1972","bpm":"116","tempo_group":"Allegretto","genre":"Rock"},{"artist":"Daft Punk","track":"Get Lucky","album":"Random Access Memories","year":"2013","bpm":"116","tempo_group":"Allegretto","genre":"Electronic"},{"artist":"Tears for Fears","track":"Everybody Wants to Rule the World","album":"Songs from the Big Chair","year":"1985","bpm":"116","tempo_group":"Allegretto","genre":"New Wave"},{"artist":"Peter Gabriel","track":"Sledgehammer","album":"So","year":"1986","bpm":"116","tempo_group":"Allegretto","genre":"Pop/Rock"},{"artist":"Nirvana","track":"Smells Like Teen Spirit","album":"Nevermind","year":"1991","bpm":"117","tempo_group":"Allegretto","genre":"Alternative"},{"artist":"Michael Jackson","track":"Billie Jean","album":"Thriller","year":"1982","bpm":"117","tempo_group":"Allegretto","genre":"Pop"},{"artist":"The Police","track":"Every Breath You Take","album":"Synchronicity","year":"1983","bpm":"118","tempo_group":"Allegretto","genre":"Rock"},{"artist":"They Might Be Giants","track":"Take Out The Trash","album":"The Else","year":"2007","bpm":"120","tempo_group":"Allegretto","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Can't Keep Johnny Down","album":"Join Us","year":"2011","bpm":"120","tempo_group":"Allegretto","genre":"Indie/Alternative"},{"artist":"Nirvana","track":"Come As You Are","album":"Nevermind","year":"1991","bpm":"120","tempo_group":"Allegro","genre":"Alternative"},{"artist":"They Might Be Giants","track":"Birdhouse in Your Soul","album":"Flood","year":"1990","bpm":"120","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Cowtown","album":"Lincoln","year":"1988","bpm":"121","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Boat of Car","album":"They Might Be Giants","year":"1986","bpm":"121","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"Guns N' Roses","track":"Sweet Child O' Mine","album":"Appetite for Destruction","year":"1987","bpm":"122","tempo_group":"Allegro","genre":"Rock"},{"artist":"They Might Be Giants","track":"Dig My Grave","album":"Apollo 18","year":"1992","bpm":"122","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"Daft Punk","track":"One More Time","album":"Discovery","year":"2001","bpm":"123","tempo_group":"Allegro","genre":"Electronic"},{"artist":"Depeche Mode","track":"Personal Jesus","album":"Violator","year":"1990","bpm":"123","tempo_group":"Allegro","genre":"Electronic"},{"artist":"Bon Jovi","track":"Livin' on a Prayer","album":"Slippery When Wet","year":"1986","bpm":"123","tempo_group":"Allegro","genre":"Rock"},{"artist":"AC/DC","track":"You Shook Me All Night Long","album":"Back in Black","year":"1980","bpm":"124","tempo_group":"Allegro","genre":"Rock"},{"artist":"Madonna","track":"Like a Prayer","album":"Like a Prayer","year":"1989","bpm":"125","tempo_group":"Allegro","genre":"Pop"},{"artist":"They Might Be Giants","track":"Twisting","album":"Flood","year":"1990","bpm":"125","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Whistling in the Dark","album":"Flood","year":"1990","bpm":"125","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Experimental Film","album":"The Spine","year":"2004","bpm":"125","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"U2","track":"Where the Streets Have No Name","album":"The Joshua Tree","year":"1987","bpm":"126","tempo_group":"Allegro","genre":"Rock"},{"artist":"They Might Be Giants","track":"Wu-Tang","album":"Wu-Tang (Single) / The World is to Dig","year":"2022","bpm":"126","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"David Bowie","track":"Changes","album":"Hunky Dory","year":"1971","bpm":"127","tempo_group":"Allegro","genre":"Rock"},{"artist":"They Might Be Giants","track":"No One Knows My Plan","album":"John Henry","year":"1994","bpm":"128","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"New Order","track":"Blue Monday","album":"Power, Corruption & Lies","year":"1983","bpm":"130","tempo_group":"Allegro","genre":"Electronic"},{"artist":"Iron Maiden","track":"The Number of the Beast","album":"The Number of the Beast","year":"1982","bpm":"130","tempo_group":"Allegro","genre":"Metal"},{"artist":"They Might Be Giants","track":"Mammal","album":"Apollo 18","year":"1992","bpm":"131","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"The Police","track":"Roxanne","album":"Outlandos d'Amour","year":"1978","bpm":"133","tempo_group":"Allegro","genre":"Rock"},{"artist":"They Might Be Giants","track":"Ana Ng","album":"Lincoln","year":"1988","bpm":"133","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"Jimi Hendrix","track":"Purple Haze","album":"Are You Experienced","year":"1967","bpm":"134","tempo_group":"Allegro","genre":"Rock"},{"artist":"Talking Heads","track":"Burning Down the House","album":"Speaking in Tongues","year":"1983","bpm":"134","tempo_group":"Allegro","genre":"New Wave"},{"artist":"AC/DC","track":"Thunderstruck","album":"The Razors Edge","year":"1990","bpm":"134","tempo_group":"Allegro","genre":"Rock"},{"artist":"The Rolling Stones","track":"(I Can't Get No) Satisfaction","album":"Out of Our Heads","year":"1965","bpm":"136","tempo_group":"Allegro","genre":"Rock"},{"artist":"Iggy Pop","track":"Lust for Life","album":"Lust for Life","year":"1977","bpm":"137","tempo_group":"Allegro","genre":"Punk/Rock"},{"artist":"Eagles","track":"Take It Easy","album":"Eagles","year":"1972","bpm":"138","tempo_group":"Allegro","genre":"Rock"},{"artist":"Ozzy Osbourne","track":"Crazy Train","album":"Blizzard of Ozz","year":"1980","bpm":"138","tempo_group":"Allegro","genre":"Metal"},{"artist":"Stevie Wonder","track":"Sir Duke","album":"Songs in the Key of Life","year":"1976","bpm":"138","tempo_group":"Allegro","genre":"R&B/Soul"},{"artist":"They Might Be Giants","track":"Your Racist Friend","album":"Flood","year":"1990","bpm":"138","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Istanbul (Not Constantinople)","album":"Flood","year":"1990","bpm":"140","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"My Evil Twin","album":"Apollo 18","year":"1992","bpm":"140","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Stone Cold Coup D'Etat","album":"Nanobots","year":"2013","bpm":"140","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"Fleetwood Mac","track":"Go Your Own Way","album":"Rumours","year":"1977","bpm":"141","tempo_group":"Allegro","genre":"Rock"},{"artist":"Mot\\u00f6rhead","track":"Killed by Death","album":"No Remorse","year":"1984","bpm":"141","tempo_group":"Allegro","genre":"Metal"},{"artist":"They Might Be Giants","track":"Authenticity Trip","album":"Join Us","year":"2011","bpm":"142","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Bee of the Bird of the Moth","album":"The Else","year":"2007","bpm":"144","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"When Will You Die?","album":"Join Us","year":"2011","bpm":"144","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"They Might Be Giants","track":"Which Describes How You're Feeling","album":"Apollo 18","year":"1992","bpm":"146","tempo_group":"Allegro","genre":"Indie/Alternative"},{"artist":"Mot\\u00f6rhead","track":"Ace of Spades","album":"Ace of Spades","year":"1980","bpm":"155","tempo_group":"Allegro","genre":"Metal"},{"artist":"Black Sabbath","track":"Paranoid","album":"Paranoid","year":"1970","bpm":"164","tempo_group":"Presto","genre":"Metal"},{"artist":"Bruce Springsteen","track":"Born to Run","album":"Born to Run","year":"1975","bpm":"168","tempo_group":"Presto","genre":"Rock"},{"artist":"The Rolling Stones","track":"Paint It Black","album":"Aftermath","year":"1966","bpm":"168","tempo_group":"Presto","genre":"Rock"},{"artist":"Sex Pistols","track":"Anarchy in the U.K.","album":"Never Mind the Bollocks, Here's the Sex Pistols","year":"1977","bpm":"170","tempo_group":"Presto","genre":"Punk"},{"artist":"Deep Purple","track":"Highway Star","album":"Machine Head","year":"1972","bpm":"173","tempo_group":"Presto","genre":"Rock"},{"artist":"Mot\\u00f6rhead","track":"Bomber","album":"Bomber","year":"1979","bpm":"174","tempo_group":"Presto","genre":"Metal"},{"artist":"Green Day","track":"Basket Case","album":"Dookie","year":"1994","bpm":"174","tempo_group":"Presto","genre":"Punk"},{"artist":"The Ramones","track":"Blitzkrieg Bop","album":"Ramones","year":"1976","bpm":"176","tempo_group":"Presto","genre":"Punk"},{"artist":"Iron Maiden","track":"The Trooper","album":"Piece of Mind","year":"1983","bpm":"176","tempo_group":"Presto","genre":"Metal"},{"artist":"The Descendents","track":"Suburban Home","album":"Milo Goes to College","year":"1982","bpm":"176","tempo_group":"Presto","genre":"Punk"},{"artist":"Bad Religion","track":"21st Century Digital Boy","album":"Against the Grain","year":"1990","bpm":"178","tempo_group":"Presto","genre":"Punk"},{"artist":"Tom Petty & the Heartbreakers","track":"American Girl","album":"Tom Petty and the Heartbreakers","year":"1976","bpm":"178","tempo_group":"Presto","genre":"Rock"},{"artist":"Mot\\u00f6rhead","track":"Overkill","album":"Overkill","year":"1979","bpm":"180","tempo_group":"Presto","genre":"Metal"},{"artist":"The Ramones","track":"I Wanna Be Sedated","album":"Road to Ruin","year":"1978","bpm":"180","tempo_group":"Presto","genre":"Punk"},{"artist":"NOFX","track":"The Brews","album":"Punk in Drublic","year":"1994","bpm":"182","tempo_group":"Presto","genre":"Punk"},{"artist":"They Might Be Giants","track":"Hot Dog!","album":"Mickey Mouse Clubhouse","year":"2006","bpm":"184","tempo_group":"Presto","genre":"Indie/Alternative"},{"artist":"NOFX","track":"Perfect Government","album":"Punk in Drublic","year":"1994","bpm":"188","tempo_group":"Presto","genre":"Punk"},{"artist":"NOFX","track":"Linoleum","album":"Punk in Drublic","year":"1994","bpm":"192","tempo_group":"Presto","genre":"Punk"}];
+
+const MAX_ROWS = 250;
+let allSongs = BUILT_IN_DATA.map(s => ({ ...s, bpm: parseInt(s.bpm, 10) }));
+let sortCol  = 'bpm';
+let sortAsc  = true;
+let debounceTimer = null;
+
+// ─────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function escapeHtml(s)  { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function normalizeForSearch(str) {
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\/\-&+.'\u2018\u2019]/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function artistRelevance(artistNorm, queryNorm) {
+  if (artistNorm === queryNorm)               return 0;
+  if (artistNorm.startsWith(queryNorm + ' ')) return 1;
+  if (artistNorm.startsWith(queryNorm))       return 2;
+  return 3;
+}
+
+// ─────────────────────────────────────────────────────────────
+// App init — fetch from Google Sheets or fall back to built-in
+// ─────────────────────────────────────────────────────────────
+function setLoadStatus(msg) {
+  const el = document.getElementById('load-status');
+  if (el) el.textContent = msg;
+}
+
+function hideOverlay() {
+  const ov = document.getElementById('load-overlay');
+  if (ov) { ov.classList.add('hidden'); setTimeout(() => ov.remove(), 600); }
+}
+
+function initApp() {
+  const note = document.getElementById('data-source-note');
+
+  if (!SHEETS_CSV_URL || SHEETS_CSV_URL === 'YOUR_GOOGLE_SHEETS_CSV_URL_HERE') {
+    // No Sheets URL configured — use built-in 149 songs
+    note.textContent = 'Built-in: 149 songs — load CSV for full 692,280-song database';
+    hideOverlay();
+    renderTable(null);
+    return;
+  }
+
+  setLoadStatus('Connecting to Google Sheets…');
+
+  fetch(SHEETS_CSV_URL)
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP error ${r.status}`);
+      setLoadStatus('Downloading database…');
+      return r.text();
+    })
+    .then(text => {
+      setLoadStatus('Parsing songs…');
+      const songs = parseCSV(text);
+      if (songs.length > 0) {
+        allSongs = songs;
+        note.textContent = `Full database: ${songs.length.toLocaleString()} songs loaded`;
+      } else {
+        note.textContent = 'Built-in: 149 songs (CSV was empty — check your Sheets URL)';
+      }
+    })
+    .catch(err => {
+      console.warn('Google Sheets fetch failed:', err);
+      note.textContent = 'Built-in: 149 songs (could not reach Google Sheets — load CSV manually)';
+    })
+    .finally(() => {
+      hideOverlay();
+      renderTable(null);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
+// CSV parser
+// ─────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
+  const idx = h => headers.indexOf(h);
+  const iArtist = idx('artist'), iTrack = idx('track'), iAlbum = idx('album');
+  const iBpm = idx('bpm'), iTempo = idx('tempo_group'), iGenre = idx('genre');
+  const results = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCsvLine(line);
+    const obj = {};
+    if (iArtist >= 0) obj.artist     = (cols[iArtist] || '').trim();
+    if (iTrack  >= 0) obj.track      = (cols[iTrack]  || '').trim();
+    if (iAlbum  >= 0) obj.album      = (cols[iAlbum]  || '').trim();
+    if (iBpm    >= 0) obj.bpm        = parseInt(cols[iBpm] || '0', 10) || 0;
+    if (iTempo  >= 0) obj.tempo_group= (cols[iTempo]  || '').trim();
+    if (iGenre  >= 0) obj.genre      = (cols[iGenre]  || '').trim();
+    if (obj.artist && obj.track && obj.bpm > 0) results.push(obj);
+  }
+  return results;
+}
+
+function parseCsvLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else { inQ = !inQ; } }
+    else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Render
+// ─────────────────────────────────────────────────────────────
+function renderTable(songs) {
+  const wrap  = document.getElementById('table-wrap');
+  const count = document.getElementById('result-count');
+  const prompt = document.getElementById('prompt-state');
+
+  if (songs === null) {
+    // No search yet — show prompt
+    wrap.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'state-box'; box.id = 'prompt-state';
+    box.innerHTML = '<div class="icon">🔍</div><h3>Start searching above</h3><p>Enter an artist name, track title, or select a tempo group to find songs.</p>';
+    wrap.appendChild(box);
+    count.textContent = '';
+    return;
+  }
+
+  if (songs.length === 0) {
+    wrap.innerHTML = '<div class="state-box"><div class="icon">🎵</div><h3>No songs found</h3><p>Try a different artist, track title, or tempo group.</p></div>';
+    count.textContent = '';
+    return;
+  }
+
+  const total     = songs.length;
+  const displayed = Math.min(total, MAX_ROWS);
+  const subset    = songs.slice(0, displayed);
+
+  if (total > MAX_ROWS) {
+    count.textContent = `Showing ${displayed} of ${total.toLocaleString()} songs — refine your search to see more`;
+  } else {
+    count.textContent = `${total.toLocaleString()} song${total !== 1 ? 's' : ''} found`;
+  }
+
+  const arrow = sortAsc ? '↑' : '↓';
+  const th = (col, label) => `<th data-col="${col}" ${col===sortCol?'class="sorted"':''}>${label} <span class="sort-icon">${col===sortCol?arrow:'↕'}</span></th>`;
+
+  let html = `<table><thead><tr>
+    ${th('artist','ARTIST')}${th('track','TRACK')}${th('album','ALBUM / RECORDING')}
+    ${th('tempo_group','TEMPO GROUP')}${th('bpm','BPM')}${th('genre','GENRE')}
+  </tr></thead><tbody>`;
+
+  for (const s of subset) {
+    const tg = escapeHtml(s.tempo_group || '');
+    const chip = tg ? `<span class="tempo-chip tempo-${tg}">${tg}</span>` : '';
+    html += `<tr>
+      <td>${escapeHtml(s.artist||'')}</td>
+      <td>${escapeHtml(s.track||'')}</td>
+      <td>${escapeHtml(s.album||'')}</td>
+      <td>${chip}</td>
+      <td class="td-bpm">${s.bpm||''}</td>
+      <td>${escapeHtml(s.genre||'')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  // Sort listeners
+  wrap.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sortCol === col) { sortAsc = !sortAsc; }
+      else { sortCol = col; sortAsc = col === 'bpm'; }
+      doSearch();
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────────────────────
+function doSearch() {
+  const artistQ = document.getElementById('q-artist').value.trim();
+  const trackQ  = document.getElementById('q-track').value.trim();
+  const genreQ  = document.getElementById('q-genre').value.trim();
+  const tempoQ  = document.getElementById('q-tempo').value;
+
+  const hasQuery = artistQ || trackQ || genreQ || tempoQ;
+  if (!hasQuery) { renderTable(null); return; }
+
+  const normArtistQ = normalizeForSearch(artistQ);
+  const normTrackQ  = normalizeForSearch(trackQ);
+  const normGenreQ  = normalizeForSearch(genreQ);
+
+  const artistRx = normArtistQ ? new RegExp('\\b' + escapeRegex(normArtistQ)) : null;
+  const trackRx  = normTrackQ  ? new RegExp(escapeRegex(normTrackQ))  : null;
+  const genreRx  = normGenreQ  ? new RegExp(escapeRegex(normGenreQ))  : null;
+
+  let results = allSongs.filter(s => {
+    if (artistRx && !artistRx.test(normalizeForSearch(s.artist))) return false;
+    if (trackRx  && !trackRx.test(normalizeForSearch(s.track)))   return false;
+    if (genreRx  && !genreRx.test(normalizeForSearch(s.genre)))   return false;
+    if (tempoQ   && s.tempo_group !== tempoQ)                      return false;
+    return true;
+  });
+
+  // Sort
+  results.sort((a, b) => {
+    // Artist relevance boost
+    if (normArtistQ) {
+      const ra = artistRelevance(normalizeForSearch(a.artist), normArtistQ);
+      const rb = artistRelevance(normalizeForSearch(b.artist), normArtistQ);
+      if (ra !== rb) return ra - rb;
+      // Within same relevance tier: shorter artist name first
+      const la = (a.artist||'').length, lb = (b.artist||'').length;
+      if (la !== lb) return la - lb;
+    }
+    // Column sort
+    let va = a[sortCol] || '', vb = b[sortCol] || '';
+    if (sortCol === 'bpm') { va = +va; vb = +vb; }
+    else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ?  1 : -1;
+    return 0;
+  });
+
+  renderTable(results);
+}
+
+function scheduleSearch() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(doSearch, 300);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Event listeners
+// ─────────────────────────────────────────────────────────────
+document.getElementById('q-artist').addEventListener('input', scheduleSearch);
+document.getElementById('q-track').addEventListener('input', scheduleSearch);
+document.getElementById('q-genre').addEventListener('input', scheduleSearch);
+document.getElementById('q-tempo').addEventListener('change', doSearch);
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  document.getElementById('q-artist').value = '';
+  document.getElementById('q-track').value  = '';
+  document.getElementById('q-genre').value  = '';
+  document.getElementById('q-tempo').value  = '';
+  renderTable(null);
+  document.getElementById('result-count').textContent = '';
+});
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const note = document.getElementById('data-source-note');
+  note.textContent = 'Loading CSV…';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const songs = parseCSV(ev.target.result);
+    if (songs.length > 0) {
+      allSongs = songs;
+      note.textContent = `CSV loaded: ${songs.length.toLocaleString()} songs`;
+      doSearch();
+    } else {
+      note.textContent = 'CSV load failed — check file format';
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ─────────────────────────────────────────────────────────────
+// Start
+// ─────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body>
+</html>
